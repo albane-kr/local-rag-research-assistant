@@ -14,6 +14,7 @@ class Resource(Base):
     version = Column(Integer)
     raw_path = Column(Text)
     markdown_path = Column(Text, nullable=True)
+    docling_path = Column(Text, nullable=True)
     status = Column(String, default="ingested")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

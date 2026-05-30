@@ -2,3 +2,5 @@ context.md
 plan.md
 prd.md
 .claude/*
+.gitignore
+CLAUDE.md

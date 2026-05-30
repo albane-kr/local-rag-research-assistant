@@ -14,6 +14,8 @@ from src.rag.retriever import retrieve_context, build_context_prompt
 from src.llm.ollama_client import OllamaClient
 from src.llm.orchestrator import generate_response
 from src.api.resources import get_all_resources, get_resource_versions
+from src.parse.docling_parser import parse_with_docling, save_docling_json
+from src.kg.extractor import extract_and_populate_kg
 from pathlib import Path
 from sqlalchemy.orm import Session
 
@@ -115,6 +117,24 @@ async def ingest_endpoint(
             resource.status = "etl_success" if result["etl_status"] == "success" else "etl_failed"
             session.commit()
 
+        # Parse with Docling for structure extraction
+        docling_output = parse_with_docling(result["raw_path"])
+        parse_status = docling_output["parse_status"]
+        if parse_status == "success":
+            docling_dir = Path("./data/docling")
+            docling_dir.mkdir(parents=True, exist_ok=True)
+            docling_path = docling_dir / f"{result['resource_id']}_v{result['version']}.json"
+            save_docling_json(docling_output, str(docling_path))
+            result["docling_path"] = str(docling_path)
+            result["parse_status"] = "success"
+
+            # Extract and populate KG (even if indexing fails, we keep the KG)
+            kg = extract_and_populate_kg(docling_output, result["resource_id"], result["version"])
+            result["kg_stats"] = kg.get_stats(result["resource_id"])
+        else:
+            result["parse_status"] = "failed"
+            result["parse_error"] = docling_output.get("error")
+
         # Chunk, embed, and index if ETL succeeded
         if result["etl_status"] == "success":
             try:
@@ -125,6 +145,14 @@ async def ingest_endpoint(
                 result["status"] = "indexed"
             except Exception as e:
                 result["index_error"] = str(e)
+
+        # Update resource with Docling path
+        resource = session.query(Resource).filter_by(
+            resource_id=result["resource_id"], version=result["version"]
+        ).first()
+        if resource and result.get("docling_path"):
+            resource.docling_path = result["docling_path"]
+            session.commit()
 
         return JSONResponse(result)
     except Exception as e:

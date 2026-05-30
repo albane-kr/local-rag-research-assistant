@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local RAG Research Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            background: #333;
+            color: white;
+            padding: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .panel-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        /* Ingest Panel */
+        .upload-area {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover {
+            background: #f0f4ff;
+            border-color: #764ba2;
+        }
+
+        .upload-area.dragover {
+            background: #e8ecff;
+            border-color: #764ba2;
+        }
+
+        .upload-area input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #666;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #764ba2;
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status-message {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .status-message.show {
+            display: block;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.loading {
+            background: #e2e3e5;
+            color: #383d41;
+            border: 1px solid #d6d8db;
+        }
+
+        /* Resources List */
+        .resources-list {
+            list-style: none;
+        }
+
+        .resource-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .resource-id {
+            font-weight: bold;
+            color: #333;
+            word-break: break-all;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .resource-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* Chat Panel */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .message.user {
+            background: #e3f2fd;
+            text-align: right;
+        }
+
+        .message.assistant {
+            background: #f5f5f5;
+        }
+
+        .message-text {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message-meta {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .input-area input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+
+        .provenance {
+            background: #f0f4ff;
+            border-left: 3px solid #667eea;
+            padding: 10px;
+            margin-top: 8px;
+            font-size: 12px;
+            border-radius: 2px;
+        }
+
+        .provenance-label {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 3px;
+        }
+
+        .provenance-item {
+            color: #666;
+            margin-bottom: 2px;
+        }
+
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Ingest Panel -->
+        <div class="panel">
+            <div class="panel-header">📤 Ingest Documents</div>
+            <div class="panel-content">
+                <div class="status-message" id="ingestStatus"></div>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">
+                        <strong>Click or drag files here</strong><br>
+                        <small>PDF, TXT, DOCX, etc.</small>
+                    </div>
+                    <input type="file" id="fileInput" multiple>
+                </div>
+                <button class="btn btn-primary" id="uploadBtn" style="width: 100%; margin-bottom: 15px;">Upload</button>
+
+                <h3 style="margin-bottom: 10px; color: #333;">Resources</h3>
+                <ul class="resources-list" id="resourcesList"></ul>
+            </div>
+        </div>
+
+        <!-- Chat Panel -->
+        <div class="panel">
+            <div class="panel-header">💬 Chat</div>
+            <div class="panel-content chat-container">
+                <div class="messages" id="messages"></div>
+                <div class="input-area">
+                    <input type="text" id="queryInput" placeholder="Ask a question...">
+                    <button class="btn btn-primary" id="sendBtn">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use the current host to avoid CORS issues with localhost vs 127.0.0.1
+        const API_BASE = `${window.location.protocol}//${window.location.hostname}:8000`;
+
+        // Upload functionality
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const ingestStatus = document.getElementById('ingestStatus');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            fileInput.files = e.dataTransfer.files;
+        });
+
+        uploadBtn.addEventListener('click', async () => {
+            const files = fileInput.files;
+            if (files.length === 0) {
+                showStatus(ingestStatus, 'Please select files first', 'error');
+                return;
+            }
+
+            for (const file of files) {
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    showStatus(ingestStatus, `Uploading ${file.name}...`, 'loading');
+                    const response = await fetch(`${API_BASE}/ingest`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        showStatus(ingestStatus, `✓ ${file.name} ingested (${data.chunk_count} chunks)`, 'success');
+                        loadResources();
+                    } else {
+                        showStatus(ingestStatus, `✗ ${data.detail || 'Unknown error'}`, 'error');
+                    }
+                } catch (e) {
+                    showStatus(ingestStatus, `Error uploading ${file.name}: ${e.message}`, 'error');
+                }
+            }
+            fileInput.value = '';
+        });
+
+        // Load and display resources
+        async function loadResources() {
+            try {
+                const response = await fetch(`${API_BASE}/resources`);
+                const data = await response.json();
+                const list = document.getElementById('resourcesList');
+                list.innerHTML = '';
+                if (data.resources.length === 0) {
+                    list.innerHTML = '<li style="color: #999;">No resources yet</li>';
+                    return;
+                }
+                data.resources.forEach(res => {
+                    const item = document.createElement('li');
+                    item.className = 'resource-item';
+                    item.innerHTML = `
+                        <div class="resource-id">${res.resource_id.substring(0, 8)}...</div>
+                        <div class="resource-info">
+                            Version: ${res.latest_version} | Status: ${res.status} | Chunks: ${res.chunk_count}
+                        </div>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (e) {
+                console.error('Error loading resources:', e);
+            }
+        }
+
+        // Chat functionality
+        const messagesDiv = document.getElementById('messages');
+        const queryInput = document.getElementById('queryInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        sendBtn.addEventListener('click', sendMessage);
+        queryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        async function sendMessage() {
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            // Add user message
+            addMessage(query, 'user');
+            queryInput.value = '';
+            sendBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, top_k: 5 }),
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    addMessage(data.answer, 'assistant', data);
+                } else {
+                    addMessage(`Error: ${data.detail}`, 'assistant');
+                }
+            } catch (e) {
+                addMessage(`Connection error: ${e.message}`, 'assistant');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        function addMessage(text, role, metadata) {
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+            let html = `<div class="message-text">${escapeHtml(text)}</div>`;
+            if (metadata) {
+                html += `
+                    <div class="provenance">
+                        <div class="provenance-label">📊 Provenance</div>
+                        <div class="provenance-item">Model: ${metadata.model_used}</div>
+                        <div class="provenance-item">Type: ${metadata.query_type}</div>
+                        <div class="provenance-item">Chunks: ${metadata.chunk_count}</div>
+                        <div class="provenance-item">Resources: ${metadata.resource_ids.join(', ') || 'N/A'}</div>
+                    </div>
+                `;
+            }
+            msg.innerHTML = html;
+            messagesDiv.appendChild(msg);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function showStatus(element, message, type) {
+            element.textContent = message;
+            element.className = `status-message show ${type}`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load resources on startup
+        loadResources();
+    </script>
+</body>
+</html>

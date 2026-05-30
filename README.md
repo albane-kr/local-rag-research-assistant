@@ -1,8 +1,8 @@
-# Local NotebookLM‑Style Research Assistant — MVP scaffold
+# Local NotebookLM‑Style Research Assistant
 
-This repository contains an initial scaffold for the Local NotebookLM‑style Research Assistant (Python + Chroma MVP).
+A local, private, extensible research assistant that ingests documents, extracts structured representations, and answers questions using retrieval-augmented generation (RAG) with local LLMs.
 
-Setup (Windows PowerShell):
+## Setup
 
 ```powershell
 python -m venv .venv
@@ -10,24 +10,49 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Run development server:
+## Running
 
+### Web UI (recommended)
 ```powershell
 uvicorn src.api.app:app --reload
+# Open http://localhost:8000/ui in your browser
 ```
 
-Run tests:
+### CLI
+```powershell
+# Ingest a document
+python -m src.cli.main ingest path/to/document.pdf
+
+# List all resources
+python -m src.cli.main resources
+
+# List versions of a resource
+python -m src.cli.main versions <resource-id>
+
+# Chat with RAG
+python -m src.cli.main chat "What is machine learning?"
+```
+
+### API Endpoints
+- `POST /ingest` — Upload a document (triggers ETL → chunking → indexing)
+- `POST /query` — Retrieve chunks (no LLM)
+- `POST /chat` — Full RAG + LLM pipeline
+- `GET /resources` — List all resources
+- `GET /resources/<id>/versions` — List versions of a resource
+
+## Testing
 
 ```powershell
-pytest -q
+python -m pytest -v
 ```
 
-Files created in scaffold:
-- `src/api/app.py` (FastAPI health endpoint)
-- `src/db/models.py` (SQLite metadata models)
-- `src/ingest/` (ingest stubs)
-- `src/etl/` (ETL stubs)
-- `src/chunking/` (splitter)
-- `src/vectorstore/` (Chroma adapter stub)
-- `src/llm/` (Ollama client stub)
-- `tests/test_health.py` (basic health test)
+## Architecture
+
+- **Ingest**: Local files, versioned storage (UUID resource_id + version number)
+- **ETL**: Markdown conversion via markitdown, stored under `./data/markdown/`
+- **Chunking**: Heading-based splitter with overlap, stored under `./data/raw/`
+- **Embeddings**: all-MiniLM-L6-v2 (384-dim, CPU-friendly)
+- **Vector DB**: Chroma with persistent storage (`./chroma_db/`), metadata filtering for version isolation
+- **RAG**: Retrieve latest-version chunks only, build prompts with fallback
+- **LLM**: Ollama local server with query-type routing (summary→gemma, compare→nemotron, analyze→granite, default→llama)
+- **Database**: SQLite (`./data.db`) for resource metadata and versioning

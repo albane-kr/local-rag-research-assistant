@@ -11,3 +11,5 @@ pytest
 httpx
 markitdown
 docling
+typer[all]
+rich

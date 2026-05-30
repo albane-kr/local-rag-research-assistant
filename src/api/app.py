@@ -1,5 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import tempfile
 import os
@@ -9,6 +11,9 @@ from src.etl.markitdown_adapter import run_markitdown
 from src.chunking.pipeline import index_resource, _get_chroma
 from src.vectorstore.chroma_client import ChromaClient
 from src.rag.retriever import retrieve_context, build_context_prompt
+from src.llm.ollama_client import OllamaClient
+from src.llm.orchestrator import generate_response
+from src.api.resources import get_all_resources, get_resource_versions
 from pathlib import Path
 from sqlalchemy.orm import Session
 
@@ -18,8 +23,27 @@ class QueryRequest(BaseModel):
     top_k: int = 5
     fallback: bool = True
 
+
+class ChatRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
 app = FastAPI()
 SessionLocal = init_db()
+
+# Add CORS middleware for local development (web UI at /ui calls API)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for local development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static files (UI) at /ui
+ui_dir = Path(__file__).parent.parent / "ui"
+if ui_dir.exists():
+    app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 
 
 def get_db():
@@ -32,6 +56,16 @@ def get_db():
 
 def get_chroma() -> ChromaClient:
     return _get_chroma()
+
+
+_ollama: OllamaClient | None = None
+
+
+def get_ollama() -> OllamaClient:
+    global _ollama
+    if _ollama is None:
+        _ollama = OllamaClient()
+    return _ollama
 
 
 @app.get("/health")
@@ -124,5 +158,65 @@ def query_endpoint(req: QueryRequest, chroma: ChromaClient = Depends(get_chroma)
             ],
             "prompt": prompt,
         })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/chat")
+def chat_endpoint(
+    req: ChatRequest,
+    chroma: ChromaClient = Depends(get_chroma),
+    ollama: OllamaClient = Depends(get_ollama),
+):
+    """Full RAG + LLM pipeline with provenance tracking."""
+    try:
+        chunks = retrieve_context(req.query, chroma, top_k=req.top_k)
+        prompt = build_context_prompt(req.query, chunks, fallback=True)
+
+        if not prompt:
+            return JSONResponse({
+                "query": req.query,
+                "answer": "No relevant documents found. Please upload documents or try a different query.",
+                "model_used": "none",
+                "chunk_count": 0,
+                "chunk_ids": [],
+                "resource_ids": [],
+                "versions": [],
+            })
+
+        llm_response = generate_response(req.query, prompt, chunks, ollama)
+
+        return JSONResponse({
+            "query": req.query,
+            "answer": llm_response.answer,
+            "model_used": llm_response.model_used,
+            "query_type": llm_response.query_type,
+            "chunk_count": len(chunks),
+            "chunk_ids": llm_response.chunk_ids,
+            "resource_ids": llm_response.resource_ids,
+            "versions": llm_response.versions,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/resources")
+def list_resources(session: Session = Depends(get_db)):
+    """UI-01: List all resources with latest version info."""
+    try:
+        resources = get_all_resources(session)
+        return JSONResponse({"resources": resources})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/resources/{resource_id}/versions")
+def list_versions(resource_id: str, session: Session = Depends(get_db)):
+    """List all versions of a specific resource."""
+    try:
+        versions = get_resource_versions(resource_id, session)
+        return JSONResponse({"versions": versions})
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

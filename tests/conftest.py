@@ -1,11 +1,13 @@
 import pytest
+import tempfile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from src.db.models import Base
-from src.api.app import app, get_db
+from src.api.app import app, get_db, get_chroma
+from src.vectorstore.chroma_client import ChromaClient
 
 TEST_DB_URL = "sqlite:///:memory:"
 
@@ -29,8 +31,19 @@ def test_session():
 
 
 @pytest.fixture(scope="function")
-def client(test_session):
+def test_chroma():
+    # Isolated Chroma per test in a temp directory
+    tmp_dir = tempfile.mkdtemp()
+    chroma = ChromaClient(persist_dir=tmp_dir)
+    yield chroma
+    # Note: we don't clean up tmp_dir because Chroma holds file handles on Windows;
+    # use ignore_cleanup_errors=True if needed at a higher level
+
+
+@pytest.fixture(scope="function")
+def client(test_session, test_chroma):
     session, TestSessionLocal = test_session
+    chroma = test_chroma
 
     def override_get_db():
         db = TestSessionLocal()
@@ -39,6 +52,12 @@ def client(test_session):
         finally:
             db.close()
 
+    def override_get_chroma() -> ChromaClient:
+        return chroma
+
+    # Inject test instances via dependency overrides
     app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app), TestSessionLocal
+    app.dependency_overrides[get_chroma] = override_get_chroma
+
+    yield TestClient(app), TestSessionLocal, chroma
     app.dependency_overrides.clear()

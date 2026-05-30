@@ -1,0 +1,11 @@
+# Climate Science
+
+## Greenhouse Effect
+
+The greenhouse effect is the process by which Earth's atmosphere traps heat.
+Carbon dioxide and methane are key greenhouse gases.
+
+## Global Warming
+
+Global warming refers to the long-term increase in Earth's average temperature
+caused by human activities, primarily the emission of greenhouse gases.
